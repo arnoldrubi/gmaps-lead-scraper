@@ -141,4 +141,3 @@ curl -X POST http://localhost:3005/scrape-maps \
 - `.env` — Environment configuration for port and fallback proxy credentials.
 - `proxy-list.text` — List of HTTP proxies (`user:pass@ip:port`) used for automatic proxy rotation.
 - `package.json` — Node.js dependencies (`express`, `puppeteer`, `axios`, `cheerio`).
-
