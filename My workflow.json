@@ -1,0 +1,685 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "c8d25e0f-5e6b-47dd-8d0b-f486b96fd636",
+      "name": "When clicking ‘Execute workflow’",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -256,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1ZqCdSGbobE3AUzzNQOb-zzm0DyJL-kFpKHPKRhUuWlE",
+          "mode": "list",
+          "cachedResultName": "Gyms Assist - Lead Engine",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ZqCdSGbobE3AUzzNQOb-zzm0DyJL-kFpKHPKRhUuWlE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Search_Queue",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ZqCdSGbobE3AUzzNQOb-zzm0DyJL-kFpKHPKRhUuWlE/edit#gid=0"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Status",
+              "lookupValue": "Pending"
+            }
+          ]
+        },
+        "options": {
+          "returnFirstMatch": false
+        }
+      },
+      "id": "a0069c90-6b29-4eec-b86a-4e03669d3d45",
+      "name": "Get row(s) in sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -64,
+        16
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "2wTvS3MfaawXjKez",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://wholesale-montreal-hour-dependence.trycloudflare.com/scrape-maps",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ city: $json.City, state: $json.State, keyword: $json.Keyword, maxResults: 40 }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "363a0aed-1310-4b7a-9681-099e1324d625",
+      "name": "HTTP Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        640,
+        32
+      ],
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const rawLeads = $input.first().json.leads || [];\n\nreturn rawLeads.map(lead => {\n  // Strip Google Maps icon characters and newlines from Phone and Address\n  const cleanPhone = (lead.Phone || '').replace(/^[^\\d+]+/, '').trim();\n  const cleanAddress = (lead.Address || '').replace(/^[\\uE000-\\uF8FF\\s\\n]+/, '').trim();\n\n  // Clean URL-encoded spaces (%20) from emails\n  const cleanPrimaryEmail = decodeURIComponent(lead.Primary_Email || '').trim();\n  const cleanAllEmails = decodeURIComponent(lead.All_Emails || '')\n    .split(',')\n    .map(e => e.trim())\n    .filter(e => e && !/^first\\.last@/i.test(e))\n    .join(', ');\n\n  return {\n    json: {\n      ...lead,\n      Phone: cleanPhone,\n      Address: cleanAddress,\n      Primary_Email: /^first\\.last@/i.test(cleanPrimaryEmail) ? '' : cleanPrimaryEmail,\n      All_Emails: cleanAllEmails\n    }\n  };\n});"
+      },
+      "id": "e1fed108-714e-4a97-86dc-25114e01c1d9",
+      "name": "Code in JavaScript",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        944,
+        16
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1ZqCdSGbobE3AUzzNQOb-zzm0DyJL-kFpKHPKRhUuWlE",
+          "mode": "list",
+          "cachedResultName": "Gyms Assist - Lead Engine",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ZqCdSGbobE3AUzzNQOb-zzm0DyJL-kFpKHPKRhUuWlE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 379689155,
+          "mode": "list",
+          "cachedResultName": "Leads_Master",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ZqCdSGbobE3AUzzNQOb-zzm0DyJL-kFpKHPKRhUuWlE/edit#gid=379689155"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Place_ID": "={{ $json.Place_ID }}",
+            "Business_Name": "={{ $json.Business_Name }}",
+            "Category ": "={{ $json.Category }}",
+            "Phone ": "={{ \"'\" + $json.Phone }}",
+            "Address ": "={{ $json.Address }}",
+            "City ": "={{ $(\"Loop Over Items\").first().json.City }}",
+            "State ": "={{ $(\"Loop Over Items\").first().json.State }}",
+            "Website ": "={{ $json.Website }}",
+            "Rating ": "={{ $json.Rating }}",
+            "Reviews ": "={{ $json.Reviews }}",
+            "Scraped_At": "={{ $now.toISO() }}",
+            "Primary_Email ": "={{ $json.Primary_Email }}",
+            "Email_Status ": "={{ $json.Email_Status }}",
+            "All_Emails ": "={{ $json.All_Emails }}",
+            "Facebook ": "={{ $json.Facebook }}",
+            "Instagram ": "={{ $json.Instagram }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Place_ID",
+              "displayName": "Place_ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Business_Name",
+              "displayName": "Business_Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Category ",
+              "displayName": "Category ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Phone ",
+              "displayName": "Phone ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Address ",
+              "displayName": "Address ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "City ",
+              "displayName": "City ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "State ",
+              "displayName": "State ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Website ",
+              "displayName": "Website ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Primary_Email ",
+              "displayName": "Primary_Email ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Email_Status ",
+              "displayName": "Email_Status ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "All_Emails ",
+              "displayName": "All_Emails ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Facebook ",
+              "displayName": "Facebook ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Instagram ",
+              "displayName": "Instagram ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Rating ",
+              "displayName": "Rating ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Reviews ",
+              "displayName": "Reviews ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Scraped_At",
+              "displayName": "Scraped_At",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "a789ef0e-ea1f-4ebf-8be8-bdaa5d891263",
+      "name": "Append row in sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        560,
+        192
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "2wTvS3MfaawXjKez",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1ZqCdSGbobE3AUzzNQOb-zzm0DyJL-kFpKHPKRhUuWlE",
+          "mode": "list",
+          "cachedResultName": "Gyms Assist - Lead Engine",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ZqCdSGbobE3AUzzNQOb-zzm0DyJL-kFpKHPKRhUuWlE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Search_Queue",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ZqCdSGbobE3AUzzNQOb-zzm0DyJL-kFpKHPKRhUuWlE/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $('Loop Over Items').first().json.row_number }}",
+            "Status": "Completed",
+            "Leads_Found": "={{ $('HTTP Request').first().json.count }}",
+            "Last_run": "={{ $now.toISO() }}"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "City",
+              "displayName": "City",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "State",
+              "displayName": "State",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Keyword",
+              "displayName": "Keyword",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Leads_Found",
+              "displayName": "Leads_Found",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last_run",
+              "displayName": "Last_run",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "2dfa79f1-3ee7-41ae-8517-06b6454cd1a4",
+      "name": "Update row in sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        832,
+        336
+      ],
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "2wTvS3MfaawXjKez",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "a80867cb-71ad-4731-9720-7dbe12decebd",
+      "name": "Loop Over Items",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        160,
+        16
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1ZqCdSGbobE3AUzzNQOb-zzm0DyJL-kFpKHPKRhUuWlE",
+          "mode": "list",
+          "cachedResultName": "Gyms Assist - Lead Engine",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ZqCdSGbobE3AUzzNQOb-zzm0DyJL-kFpKHPKRhUuWlE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Search_Queue",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ZqCdSGbobE3AUzzNQOb-zzm0DyJL-kFpKHPKRhUuWlE/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $('Loop Over Items').first().json.row_number }}",
+            "Status": "Failed",
+            "Leads_Found": 0,
+            "Last_run": "={{ $now.toISO() }}"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "City",
+              "displayName": "City",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "State",
+              "displayName": "State",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Keyword",
+              "displayName": "Keyword",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Leads_Found",
+              "displayName": "Leads_Found",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last_run",
+              "displayName": "Last_run",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "d6a788bc-ed5d-4833-ad53-aaf4831864ee",
+      "name": "Mark row failed",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        960,
+        240
+      ],
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "2wTvS3MfaawXjKez",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark row failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append row in sheet": {
+      "main": [
+        [
+          {
+            "node": "Update row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update row in sheet": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark row failed": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "2de99f4a-def6-463f-8fe5-f62423795f8b",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "8666fbaa9314b2b1b661d8171417a317e6101e5b37dae23b90d68836fa0db7de"
+  },
+  "nodeGroups": [],
+  "id": "k5e4NidwJYO5MOkK",
+  "tags": []
+}

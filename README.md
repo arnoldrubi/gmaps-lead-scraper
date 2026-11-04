@@ -1,143 +1,50 @@
-# Google Maps Lead Scraper & Contact Enrichment API
+# Google Maps Lead Scraper & Contact Enrichment (Script-Only + Google Sheets)
 
-A lightweight Node.js API built with **Express**, **Puppeteer**, **Axios**, and **Cheerio** designed to be called by **n8n** (or any HTTP client). It scrapes business listings from Google Maps by city/state/keyword, visits each business's website to extract email addresses and social media links, and verifies email deliverability via DNS `MX` record lookups.
-
----
-
-## Features
-
-- **Google Maps Scraping (Puppeteer):** Searches Google Maps (`<keyword> in <city>, <state>, USA`), scrolls the results feed, and visits each listing to extract the business name, category, phone number, physical address, website URL, star rating, review count, and Place ID.
-- **Website Contact Enrichment:** Crawls each business's homepage (and falls back to `/contact`, `/about`, or `/connect` pages) to find email addresses, **Facebook** links, and **Instagram** links.
-- **Smart Email Filtering & Prioritization:** Strips out junk/system emails (`@sentry`, `@wixpress`, image filenames, etc.) and prioritizes role/owner addresses (`owner@`, `info@`, `contact@`, `sales@`, `bikes@`, etc.) as the `Primary_Email`.
-- **Zero-Cost Email Validation:** Checks email syntax and performs a live DNS `MX` lookup (`Valid_MX`, `No_MX_Record`, `Invalid_Domain`, or `Invalid_Syntax`).
-- **Proxy Pool Rotation & Retries:** Automatically rotates through proxies in `proxy-list.text` (or falls back to `.env`) and retries failed requests across up to 3 proxies.
-- **Bandwidth Optimization:** Blocks heavy visual assets (photos, Street View thumbnails, fonts, and media) in Puppeteer to reduce proxy data consumption by ~75–80% while keeping Google Maps DOM/XHR behavior intact.
+A standalone Node.js Google Maps lead scraper built with **Puppeteer**, **Axios**, and **Cheerio** that syncs directly with your **Google Sheet** (`Search_Queue` and `Leads_Master`) without needing **n8n** or a Cloudflare tunnel.
 
 ---
 
-## Prerequisites
+## Quick Start (Script-Only Mode — No n8n Required)
 
-- **Node.js** `v20.12.0+` (tested on `v24.x`; uses built-in `process.loadEnvFile()`)
-- **npm**
+### 1. Connect Your Google Sheet (1-Minute Setup)
+1. Open your Google Sheet ([Gyms Assist - Lead Engine](https://docs.google.com/spreadsheets/d/1ZqCdSGbobE3AUzzNQOb-zzm0DyJL-kFpKHPKRhUuWlE/edit)).
+2. Click **Extensions → Apps Script** in the top menu.
+3. Paste the entire contents of [`google-apps-script.js`](file:///c:/Users/USER/Documents/gmaps-lead-scraper/google-apps-script.js) into `Code.gs` and press **Save**.
+4. Click **Deploy → New deployment**, select type **Web app**:
+   - **Execute as:** `Me`
+   - **Who has access:** `Anyone`
+5. Click **Deploy**, authorize access, and copy the **Web app URL** (`https://script.google.com/macros/s/.../exec`).
+6. Paste that URL into [`.env`](file:///c:/Users/USER/Documents/gmaps-lead-scraper/.env):
+   ```env
+   APPS_SCRIPT_URL=https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec
+   MAX_RESULTS=40
+   USE_PROXY=false
+   ```
 
----
-
-## Installation
-
+### 2. Run the Queue Scraper
+Whenever you have rows marked `Pending` in the `Search_Queue` tab, run:
 ```bash
-npm install
+npm run scrape
 ```
+What happens automatically:
+1. Fetches all `Pending` rows (`City`, `State`, `Keyword`) from `Search_Queue`.
+2. Scrapes Google Maps and crawls each business website for emails, Facebook, Instagram, and DNS MX validation (retrying up to 5 times on transient errors).
+3. Cleans phone numbers, addresses, and URL-encoded/placeholder emails.
+4. Appends all leads in bulk to `Leads_Master` (skipping duplicate `Place_ID` entries).
+5. Marks the `Search_Queue` row `Completed` (or `Failed`) with `Leads_Found` and `Last_run`.
 
----
-
-## Configuration (Proxies & Environment Variables)
-
-The server supports two ways to configure proxies:
-
-### 1. Proxy Pool (`proxy-list.text`) — *Recommended*
-Place a `proxy-list.text` file in the project root with one proxy per line in the format:
-```text
-username:password@host:port
-```
-If `proxy-list.text` is present, the server automatically loads all proxies into a round-robin pool and rotates through them on every scrape request (retrying up to 3 different proxies if a connection fails).
-
-### 2. Single Fallback Proxy (`.env`)
-Create a `.env` file in the project root:
-```env
-PROXY_SERVER=http://209.50.174.184:3129
-PROXY_USERNAME=your_proxy_username
-PROXY_PASSWORD=your_proxy_password
-PORT=3005
-```
-If `proxy-list.text` is empty or missing, the server falls back to `PROXY_SERVER` from `.env`.
-
----
-
-## Running the Server
-
+### 3. Test Locally Without Google Sheets
+To run a quick test scrape directly in your terminal:
 ```bash
-node server.js
+node run-queue.js --test "Austin" "TX" "gym" 5
 ```
-
-By default, the server listens on port `3005`:
-```text
-Lead Scraper API running on port 3005 (100 proxies loaded)
-```
-
----
-
-## API Reference
-
-### `POST /scrape-maps`
-
-Scrapes Google Maps listings and enriches them with website contact data.
-
-#### Request Headers
-```http
-Content-Type: application/json
-```
-
-#### Request Body
-| Field | Type | Required | Default | Description |
-| :--- | :--- | :--- | :--- | :--- |
-| `city` | `string` | **Yes** | — | Target city (e.g., `"Austin"`) |
-| `state` | `string` | **Yes** | — | Target state (e.g., `"TX"` or `"Texas"`) |
-| `keyword` | `string` | No | `"bicycle shop"` | Search keyword or business category |
-| `maxResults` | `number` | No | `60` | Maximum number of listings to collect |
-
-#### Example Request (`curl`)
-```bash
-curl -X POST http://localhost:3005/scrape-maps \
-  -H "Content-Type: application/json" \
-  -d '{
-    "city": "Austin",
-    "state": "TX",
-    "keyword": "bicycle shop",
-    "maxResults": 20
-  }'
-```
-
-#### Example Response
-```json
-{
-  "count": 1,
-  "leads": [
-    {
-      "Place_ID": "0x8644b508b173c0f9:0x7e40717a4d621712",
-      "Business_Name": "Example Bike Shop",
-      "Category": "Bicycle store",
-      "Phone": "(512) 555-0199",
-      "Address": "123 Congress Ave, Austin, TX 78701",
-      "City": "Austin",
-      "State": "TX",
-      "Website": "https://examplebikeshop.com/",
-      "Primary_Email": "info@examplebikeshop.com",
-      "Email_Status": "Valid_MX",
-      "All_Emails": "info@examplebikeshop.com, sales@examplebikeshop.com",
-      "Facebook": "https://www.facebook.com/examplebikeshop",
-      "Instagram": "https://www.instagram.com/examplebikeshop",
-      "Rating": "4.8",
-      "Reviews": "245",
-      "Scraped_At": "2026-10-30T16:00:00.000Z"
-    }
-  ]
-}
-```
-
----
-
-## Using with n8n
-
-1. Add an **HTTP Request** node in n8n.
-2. Set **Method** to `POST` and **URL** to `http://localhost:3005/scrape-maps` (or your tunnel/host URL).
-3. Enable **Send Body** (`JSON`) and pass `city`, `state`, `keyword`, and `maxResults`.
-4. Increase the HTTP Request node **Timeout** (under *Options -> Timeout*) to `300000` (5 minutes), since scraping and enriching 20–60 listings sequentially takes roughly 1–3 minutes.
 
 ---
 
 ## Project Structure
 
-- `server.js` — Main Express server, Puppeteer Google Maps scraper, website crawler, and DNS MX email validator.
-- `.env` — Environment configuration for port and fallback proxy credentials.
-- `proxy-list.text` — List of HTTP proxies (`user:pass@ip:port`) used for automatic proxy rotation.
-- `package.json` — Node.js dependencies (`express`, `puppeteer`, `axios`, `cheerio`).
+- [`run-queue.js`](file:///c:/Users/USER/Documents/gmaps-lead-scraper/run-queue.js) — Standalone CLI runner that replaces the n8n workflow.
+- [`google-apps-script.js`](file:///c:/Users/USER/Documents/gmaps-lead-scraper/google-apps-script.js) — Google Apps Script Web App code to paste into your Google Sheet.
+- [`server.js`](file:///c:/Users/USER/Documents/gmaps-lead-scraper/server.js) — Core Puppeteer scraper, contact enricher, lead cleaner (`cleanLead`), and optional Express server (`npm start`).
+- [`.env`](file:///c:/Users/USER/Documents/gmaps-lead-scraper/.env) — Configuration for `APPS_SCRIPT_URL`, `MAX_RESULTS`, and proxy settings.
+- [`proxy-list.text`](file:///c:/Users/USER/Documents/gmaps-lead-scraper/proxy-list.text) — Optional HTTP proxy pool (`user:pass@ip:port`) used when `USE_PROXY=true`.

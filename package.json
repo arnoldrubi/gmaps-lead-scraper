@@ -1,10 +1,11 @@
 {
   "name": "bike-shops-lead-finder",
   "version": "1.0.0",
-  "description": "A lightweight Node.js API built with **Express**, **Puppeteer**, **Axios**, and **Cheerio** designed to be called by **n8n** (or any HTTP client). It scrapes business listings from Google Maps by city/state/keyword, visits each business's website to extract email addresses and social media links, and verifies email deliverability via DNS `MX` record lookups.",
-  "main": "index.js",
+  "description": "A lightweight Node.js Google Maps lead scraper & contact enrichment tool with direct Google Sheets queue runner (no n8n required).",
+  "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "scrape": "node run-queue.js",
+    "test:scrape": "node run-queue.js --test",
     "start": "node server.js"
   },
   "keywords": [],
@@ -14,11 +15,11 @@
   "dependencies": {
     "axios": "^1.21.0",
     "cheerio": "^1.2.0",
+    "dns": "^0.2.2",
     "dotenv": "^18.0.9",
     "express": "^5.3.0",
     "puppeteer": "^25.16.0"
   },
-  "devDependencies": {},
   "repository": {
     "type": "git",
     "url": "git+https://github.com/arnoldrubi/gmaps-lead-scraper.git"

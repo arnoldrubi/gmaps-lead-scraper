@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const express = require('express');
 const puppeteer = require('puppeteer');
 const cheerio = require('cheerio');
@@ -14,16 +15,28 @@ try {
 const app = express();
 app.use(express.json());
 
-// Configure fallback proxy from .env
+// Configure residential / primary proxy from .env (takes priority over proxy-list.text)
 const ENV_PROXY_SERVER = (process.env.PROXY_SERVER || '').trim();
 const ENV_PROXY_USERNAME = (process.env.PROXY_USERNAME || '').trim();
 const ENV_PROXY_PASSWORD = (process.env.PROXY_PASSWORD || '').trim();
 
-// Load proxy pool from proxy-list.text if available (format: user:pass@host:port)
+// Load proxy from .env first; fall back to proxy-list.text if .env PROXY_SERVER is empty
 function loadProxyPool() {
-  const listPath = path.join(__dirname, 'proxy-list.text');
   const pool = [];
 
+  if (ENV_PROXY_SERVER) {
+    const server = ENV_PROXY_SERVER.startsWith('http')
+      ? ENV_PROXY_SERVER
+      : `http://${ENV_PROXY_SERVER}`;
+    pool.push({
+      server,
+      username: ENV_PROXY_USERNAME,
+      password: ENV_PROXY_PASSWORD
+    });
+    return pool;
+  }
+
+  const listPath = path.join(__dirname, 'proxy-list.text');
   if (fs.existsSync(listPath)) {
     const lines = fs.readFileSync(listPath, 'utf8').split(/\r?\n/);
     for (const rawLine of lines) {
@@ -51,21 +64,11 @@ function loadProxyPool() {
     }
   }
 
-  if (pool.length === 0 && ENV_PROXY_SERVER) {
-    const server = ENV_PROXY_SERVER.startsWith('http')
-      ? ENV_PROXY_SERVER
-      : `http://${ENV_PROXY_SERVER}`;
-    pool.push({
-      server,
-      username: ENV_PROXY_USERNAME,
-      password: ENV_PROXY_PASSWORD
-    });
-  }
-
   return pool;
 }
 
-const PROXY_POOL = loadProxyPool();
+const PROXY_ENABLED = process.env.USE_PROXY === 'true';
+const PROXY_POOL = PROXY_ENABLED ? loadProxyPool() : [];
 let proxyIndex = 0;
 
 function getNextProxy() {
@@ -198,12 +201,44 @@ async function validateEmailDomain(email) {
   }
 }
 
-// Main Endpoint Called by n8n
-app.post('/scrape-maps', async (req, res) => {
-  const { city, state, keyword = 'bicycle shop', maxResults = 60 } = req.body;
+// Helper: Safely decode URI component without throwing on malformed %
+function safeDecodeURI(str) {
+  try {
+    return decodeURIComponent(str || '');
+  } catch (_) {
+    return String(str || '').replace(/%20/g, ' ');
+  }
+}
 
+// Helper: Clean raw lead fields (replaces the n8n "Code in JavaScript" node)
+function cleanLead(lead) {
+  const cleanPhone = (lead.Phone || '').replace(/^[^\d+(]+/, '').trim();
+  const cleanAddress = (lead.Address || '').replace(/^[\uE000-\uF8FF\s\n]+/, '').trim();
+
+  const decodedPrimary = safeDecodeURI(lead.Primary_Email || '').trim();
+  const cleanAllEmailsList = safeDecodeURI(lead.All_Emails || '')
+    .split(',')
+    .map(e => e.trim())
+    .filter(e => e && !/^first\.last@/i.test(e));
+
+  const cleanPrimaryEmail = /^first\.last@/i.test(decodedPrimary)
+    ? (cleanAllEmailsList[0] || '')
+    : decodedPrimary;
+
+  return {
+    ...lead,
+    Phone: cleanPhone,
+    Address: cleanAddress,
+    Primary_Email: cleanPrimaryEmail,
+    Email_Status: cleanPrimaryEmail ? lead.Email_Status : 'None',
+    All_Emails: cleanAllEmailsList.join(', ')
+  };
+}
+
+// Core Scraper Function (usable directly from scripts or via Express endpoint)
+async function scrapeMaps({ city, state, keyword = 'bicycle shop', maxResults = 60 }) {
   if (!city || !state) {
-    return res.status(400).json({ error: 'Both city and state are required.' });
+    throw new Error('Both city and state are required.');
   }
 
   const maxAttempts = PROXY_POOL.length > 1 ? 3 : 1;
@@ -281,7 +316,30 @@ app.post('/scrape-maps', async (req, res) => {
       }
 
       // Wait for the results feed container
-      await page.waitForSelector('div[role="feed"]', { timeout: 25000 });
+      try {
+        await page.waitForSelector('div[role="feed"]', { timeout: 25000 });
+      } catch (err) {
+        try {
+          const diagnostics = await page.evaluate(() => {
+            const pageText = (document.body?.innerText || '').toLowerCase();
+            return {
+              title: document.title,
+              url: window.location.href,
+              hasFeed: Boolean(document.querySelector('div[role="feed"]')),
+              hasConsentForm: Boolean(document.querySelector('form[action*="consent.google.com"]')),
+              mentionsCaptcha: pageText.includes('captcha'),
+              mentionsUnusualTraffic: pageText.includes('unusual traffic'),
+              bodyTextLength: pageText.length
+            };
+          });
+          const screenshotPath = path.join(os.tmpdir(), `gmaps-scraper-failure-${Date.now()}.png`);
+          await page.screenshot({ path: screenshotPath });
+          console.warn(`Maps results feed diagnostics: ${JSON.stringify(diagnostics)}; screenshot: ${screenshotPath}`);
+        } catch (diagnosticError) {
+          console.warn(`Could not capture Maps page diagnostics: ${diagnosticError.message}`);
+        }
+        throw err;
+      }
 
       // Scroll the feed to load listings
       await page.evaluate(async (limit) => {
@@ -359,7 +417,7 @@ app.post('/scrape-maps', async (req, res) => {
           // Enrich from business website (Emails + Socials + MX Validation)
           const webEnrichment = await enrichFromWebsite(details.website);
 
-          leads.push({
+          leads.push(cleanLead({
             Place_ID: details.placeId,
             Business_Name: details.businessName,
             Category: details.category || keyword,
@@ -376,14 +434,14 @@ app.post('/scrape-maps', async (req, res) => {
             Rating: details.rating,
             Reviews: details.reviews,
             Scraped_At: new Date().toISOString()
-          });
+          }));
         } catch (_) {
           // Skip broken individual listing and continue
         }
       }
 
       await browser.close();
-      return res.json({ count: leads.length, leads });
+      return { count: leads.length, leads };
 
     } catch (err) {
       lastError = err;
@@ -392,10 +450,33 @@ app.post('/scrape-maps', async (req, res) => {
     }
   }
 
-  return res.status(500).json({ error: lastError ? lastError.message : 'Scrape failed' });
+  throw lastError || new Error('Scrape failed');
+}
+
+// Main Endpoint Called by n8n (kept for backwards compatibility)
+app.post('/scrape-maps', async (req, res) => {
+  const { city, state, keyword = 'bicycle shop', maxResults = 60 } = req.body;
+
+  if (!city || !state) {
+    return res.status(400).json({ error: 'Both city and state are required.' });
+  }
+
+  try {
+    const result = await scrapeMaps({ city, state, keyword, maxResults });
+    return res.json(result);
+  } catch (err) {
+    return res.status(500).json({ error: err.message || 'Scrape failed' });
+  }
 });
 
-const PORT = process.env.PORT || 3005;
-app.listen(PORT, () => {
-  console.log(`Lead Scraper API running on port ${PORT} (${PROXY_POOL.length} proxies loaded)`);
-});
+if (require.main === module) {
+  const PORT = process.env.PORT || 3005;
+  app.listen(PORT, () => {
+    const proxyStatus = PROXY_ENABLED
+      ? `${PROXY_POOL.length} proxies loaded`
+      : 'proxy disabled';
+    console.log(`Lead Scraper API running on port ${PORT} (${proxyStatus})`);
+  });
+}
+
+module.exports = { scrapeMaps, cleanLead, app };
