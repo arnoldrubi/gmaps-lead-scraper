@@ -124,7 +124,8 @@ async function runQueue() {
       });
 
       const leads = result.leads || [];
-      console.log(`  -> Scraped ${leads.length} lead(s). Appending to Leads_Master...`);
+      const skippedChains = result.skippedChains || 0;
+      console.log(`  -> Scraped ${leads.length} small-business lead(s) (${skippedChains} chain/excluded listing(s) skipped). Appending to Leads_Master...`);
 
       if (leads.length > 0) {
         const appendRes = await callSheetBridge({
